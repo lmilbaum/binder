@@ -12,9 +12,14 @@ from sqlalchemy.orm import sessionmaker
 
 from binder import dedupe, folder_repository
 from binder.database import Base
-from binder.folder_repository import _file_to_dict, effective_content_type
+from binder.folder_repository import (
+    WhatsAppExtractError,
+    _file_to_dict,
+    effective_content_type,
+)
 from binder.large_objects import RELEASE_FUNCTION_SQL, RELEASE_TRIGGER_SQL
-from binder.models import DOCUMENT_TYPE_REGULAR, DocumentFile
+from binder.models import DOCUMENT_TYPE_REGULAR, Document, DocumentFile
+from binder.whatsapp import WhatsAppChat
 
 
 class FolderRepositoryTests(unittest.TestCase):
@@ -397,6 +402,76 @@ class FolderRepositoryTests(unittest.TestCase):
         [loaded] = folder_repository.documents_for_context(self.factory, [document["id"]])
 
         self.assertEqual(loaded["attachments"], [{"name": "minutes.txt", "text": "Parking minutes"}])
+
+    def _document_with_legacy_chat(self, folder_id, chat_text):
+        document = folder_repository.create_document(self.factory, folder_id, "2026-10-25", "WhatsApp")
+        chat = WhatsAppChat.from_file("chat.txt", chat_text.encode())
+        with self.factory() as session:
+            session.get(Document, document["id"]).whatsapp_chat = chat.to_dict()
+            session.commit()
+        return document
+
+    def test_extract_whatsapp_messages_from_legacy_multi_day_chat(self):
+        folder = folder_repository.create_folder(self.factory, "שיחות")
+        source = self._document_with_legacy_chat(
+            folder["id"],
+            "25/10/2026, 10:00 - דנה: לפני\n"
+            "26/10/2026, 10:00 - דנה: התחלה\n"
+            "27/10/2026, 10:00 - אני: סוף\n",
+        )
+
+        extracted = folder_repository.extract_whatsapp_messages(
+            self.factory, folder["id"], source["id"], "קטע", "2026-10-26", "2026-10-27"
+        )
+
+        self.assertEqual(extracted["date"], "2026-10-26")
+        self.assertEqual(extracted["name"], "קטע")
+        self.assertEqual(len(extracted["whatsapp_chat"]["messages"]), 2)
+        self.assertNotIn("whatsapp_chat_file_id", extracted)
+        documents = {
+            document["id"]: document
+            for document in folder_repository.get_folder(self.factory, folder["id"])["documents"]
+        }
+        self.assertEqual(len(documents), 2)
+        self.assertEqual(documents[source["id"]]["date"], "2026-10-25")
+        self.assertEqual(len(documents[source["id"]]["whatsapp_chat"]["messages"]), 3)
+
+    def test_extract_whatsapp_messages_no_chat_raises(self):
+        folder = folder_repository.create_folder(self.factory, "שיחות")
+        source = folder_repository.create_document(self.factory, folder["id"], "2026-10-25", "מסמך")
+
+        with self.assertRaises(WhatsAppExtractError) as context:
+            folder_repository.extract_whatsapp_messages(
+                self.factory, folder["id"], source["id"], "קטע", "2026-10-26", "2026-10-27"
+            )
+
+        self.assertEqual(context.exception.code, "no_whatsapp_chat")
+
+    def test_extract_whatsapp_messages_no_match_raises(self):
+        folder = folder_repository.create_folder(self.factory, "שיחות")
+        source = self._document_with_legacy_chat(
+            folder["id"], "25/10/2026, 10:00 - דנה: לפני\n"
+        )
+
+        with self.assertRaises(WhatsAppExtractError) as context:
+            folder_repository.extract_whatsapp_messages(
+                self.factory, folder["id"], source["id"], "קטע", "2026-10-26", "2026-10-27"
+            )
+
+        self.assertEqual(context.exception.code, "no_messages_in_range")
+
+    def test_extract_whatsapp_messages_wrong_folder_returns_none(self):
+        folder = folder_repository.create_folder(self.factory, "שיחות")
+        other = folder_repository.create_folder(self.factory, "אחרת")
+        source = self._document_with_legacy_chat(
+            folder["id"], "26/10/2026, 10:00 - דנה: התחלה\n"
+        )
+
+        self.assertIsNone(
+            folder_repository.extract_whatsapp_messages(
+                self.factory, other["id"], source["id"], "קטע", "2026-10-26", "2026-10-27"
+            )
+        )
 
 
 class DocumentLinkRepositoryTests(unittest.TestCase):

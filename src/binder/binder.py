@@ -32,6 +32,7 @@ from .embeddings import ChatUnavailable
 from .folder_repository import (
     DocumentRuleError,
     LinkError,
+    WhatsAppExtractError,
     add_document_link,
     create_link_type,
     remove_document_link,
@@ -203,6 +204,9 @@ class Binder(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         share_match = re.fullmatch(r"/api/folders/([^/]+)/documents/share-(preview|confirm)", path)
+        extract_match = re.fullmatch(
+            r"/api/folders/([^/]+)/documents/([^/]+)/whatsapp-extract", path
+        )
         is_ask_request = path == "/api/ask"
         if (
             not is_folder_request
@@ -210,6 +214,7 @@ class Binder(BaseHTTPRequestHandler):
             and not is_link_types_request
             and not link_match
             and not share_match
+            and not extract_match
             and not is_ask_request
         ):
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -221,6 +226,9 @@ class Binder(BaseHTTPRequestHandler):
                 self._send_json({"error": "בקשה לא תקינה"}, HTTPStatus.BAD_REQUEST)
                 return
             if is_ask_request and (length <= 0 or length > 20_000):
+                self._send_json({"error": "invalid_request"}, HTTPStatus.BAD_REQUEST)
+                return
+            if extract_match and (length <= 0 or length > 10_000):
                 self._send_json({"error": "invalid_request"}, HTTPStatus.BAD_REQUEST)
                 return
             payload = json.loads(self.rfile.read(length))
@@ -237,6 +245,9 @@ class Binder(BaseHTTPRequestHandler):
             self._send_json({"error": "בקשה לא תקינה"}, HTTPStatus.BAD_REQUEST)
             return
 
+        if extract_match:
+            self._extract_whatsapp(extract_match.group(1), extract_match.group(2), payload)
+            return
         if is_document_request:
             self._create_document(path, payload)
             return
@@ -263,6 +274,44 @@ class Binder(BaseHTTPRequestHandler):
             return
 
         self._send_json(self.store.create(name, description), HTTPStatus.CREATED)
+
+    def _extract_whatsapp(self, folder_id: str, document_id: str, payload: dict[str, object]) -> None:
+        """Copy a date range of a document's WhatsApp messages into a new document."""
+        if set(payload) != {"name", "start_date", "end_date"} or any(
+            not isinstance(value, str) for value in payload.values()
+        ):
+            self._send_json({"error": "invalid_request"}, HTTPStatus.BAD_REQUEST)
+            return
+        name = payload["name"]
+        if not 1 <= len(name.strip()) <= 200:
+            self._send_json({"error": "invalid_request"}, HTTPStatus.BAD_REQUEST)
+            return
+        start_date = payload["start_date"]
+        end_date = payload["end_date"]
+        for value in (start_date, end_date):
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+                self._send_json({"error": "invalid_date"}, HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                date.fromisoformat(value)
+            except ValueError:
+                self._send_json({"error": "invalid_date"}, HTTPStatus.BAD_REQUEST)
+                return
+        if start_date > end_date:
+            self._send_json({"error": "invalid_range"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        try:
+            document = self.store.extract_whatsapp_messages(
+                folder_id, document_id, name, start_date, end_date
+            )
+        except WhatsAppExtractError as exc:
+            self._send_json({"error": exc.code}, HTTPStatus.UNPROCESSABLE_ENTITY)
+            return
+        if document is None:
+            self._send_json({"error": "document_not_found"}, HTTPStatus.NOT_FOUND)
+            return
+        self._send_json(document, HTTPStatus.CREATED)
 
     def _ask(self, payload: object) -> None:
         if not isinstance(payload, dict) or not set(payload) <= ASK_KEYS:

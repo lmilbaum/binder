@@ -56,6 +56,23 @@ const linkErrors = {
   document_not_found: @@link_error_document_not_found@@,
   invalid_request: @@link_error_invalid_type@@,
 };
+const whatsappExtractDialog = document.querySelector("#whatsapp-extract-dialog");
+const whatsappExtractForm = document.querySelector("#whatsapp-extract-form");
+const whatsappExtractError = document.querySelector("#whatsapp-extract-error");
+const whatsappExtractName = document.querySelector("#whatsapp-extract-name");
+const whatsappExtractStart = document.querySelector("#whatsapp-extract-start");
+const whatsappExtractEnd = document.querySelector("#whatsapp-extract-end");
+const closeWhatsAppExtractDialogButton = document.querySelector("#close-whatsapp-extract-dialog");
+const cancelWhatsAppExtractDialogButton = document.querySelector("#cancel-whatsapp-extract-dialog");
+let whatsappExtractSourceId = null;
+const whatsappExtractErrors = {
+  no_whatsapp_chat: @@whatsapp_extract_error_no_chat@@,
+  no_messages_in_range: @@whatsapp_extract_error_no_messages@@,
+  invalid_range: @@whatsapp_extract_error_invalid_range@@,
+  invalid_date: @@whatsapp_extract_error_invalid_date@@,
+  document_not_found: @@link_error_document_not_found@@,
+  invalid_request: @@save_failed@@,
+};
 const calendarPanel = document.getElementById("calendar-panel");
 const calendarPrev = document.getElementById("calendar-prev");
 const calendarNext = document.getElementById("calendar-next");
@@ -954,6 +971,13 @@ function renderDocuments(documents) {
         }
       });
       editActions.append(chatToggle);
+
+      const extractButton = document.createElement("button");
+      extractButton.className = "secondary-button small-button";
+      extractButton.type = "button";
+      extractButton.textContent = @@whatsapp_extract@@;
+      extractButton.addEventListener("click", () => openWhatsAppExtractDialog(documentItem));
+      editActions.append(extractButton);
     }
 
     body.append(editActions);
@@ -1213,6 +1237,18 @@ function openLinkDialog(documentItem) {
   loadLinkTypes();
   loadLinkTargets(documentItem.id);
   linkDialog.showModal();
+}
+
+function openWhatsAppExtractDialog(documentItem) {
+  whatsappExtractSourceId = documentItem.id;
+  whatsappExtractForm.reset();
+  whatsappExtractError.textContent = "";
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  whatsappExtractStart.value = toDateKey(yesterday);
+  whatsappExtractEnd.value = toDateKey(today);
+  whatsappExtractName.value = @@whatsapp_extract_default_name@@.replace("{name}", documentItem.name);
+  whatsappExtractDialog.showModal();
 }
 
 function renderDocumentLinks(documentItem) {
@@ -1640,6 +1676,15 @@ linkDialog.addEventListener("click", (event) => {
   if (event.target === linkDialog) linkDialog.close();
 });
 
+closeWhatsAppExtractDialogButton.addEventListener("click", () => whatsappExtractDialog.close());
+cancelWhatsAppExtractDialogButton.addEventListener("click", () => whatsappExtractDialog.close());
+whatsappExtractDialog.addEventListener("close", () => {
+  whatsappExtractSourceId = null;
+});
+whatsappExtractDialog.addEventListener("click", (event) => {
+  if (event.target === whatsappExtractDialog) whatsappExtractDialog.close();
+});
+
 addLinkTypeButton.addEventListener("click", async () => {
   const name = newLinkTypeInput.value.trim();
   if (!name) return;
@@ -1699,6 +1744,45 @@ linkForm.addEventListener("submit", async (event) => {
 
     linkDialog.close();
     await openFolder(currentFolderId, false);
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = originalButtonText;
+  }
+});
+
+whatsappExtractForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  whatsappExtractError.textContent = "";
+
+  const submitButton = whatsappExtractForm.querySelector('button[type="submit"]');
+  const originalButtonText = submitButton.textContent;
+  submitButton.disabled = true;
+  submitButton.textContent = @@saving@@;
+
+  try {
+    const response = await fetch(
+      `/api/folders/${encodeURIComponent(currentFolderId)}/documents/${encodeURIComponent(whatsappExtractSourceId)}/whatsapp-extract`,
+      {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          name: whatsappExtractName.value,
+          start_date: whatsappExtractStart.value,
+          end_date: whatsappExtractEnd.value,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const result = await response.json();
+      whatsappExtractError.textContent = whatsappExtractErrors[result.error] || @@save_failed@@;
+      return;
+    }
+
+    const result = await response.json();
+    whatsappExtractDialog.close();
+    await openFolder(currentFolderId, false);
+    await revealDocument(currentFolderId, result.id);
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = originalButtonText;
