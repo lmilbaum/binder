@@ -2,11 +2,13 @@ import io
 import json
 import unittest
 from http import HTTPStatus
+from typing import ClassVar
 from unittest.mock import Mock, patch
 
 from binder.ask import AskDisabled
 from binder.binder import Binder
 from binder.embeddings import ChatUnavailable
+from binder.folder_repository import WhatsAppExtractError
 
 _DEFAULT_REMOVE_RESULT = {"id": "document"}
 
@@ -706,6 +708,97 @@ class BinderAskTests(unittest.TestCase):
         handler = self.post(json.dumps({"question": "What is the rent?"}).encode(), store=store)
 
         handler._send_json.assert_called_once_with({"error": "ask_disabled"}, HTTPStatus.SERVICE_UNAVAILABLE)
+
+
+class BinderWhatsAppExtractTests(unittest.TestCase):
+    PATH = "/api/folders/folder/documents/document/whatsapp-extract"
+    PAYLOAD: ClassVar[dict] = {"name": "קטע", "start_date": "2026-10-26", "end_date": "2026-10-27"}
+
+    def post(self, payload, store=None):
+        handler = object.__new__(Binder)
+        handler.path = self.PATH
+        body = json.dumps(payload).encode()
+        handler.headers = {"Content-Length": str(len(body))}
+        handler.rfile = io.BytesIO(body)
+        handler.store = store or Mock()
+        handler._send_json = Mock()
+        handler.do_POST()
+        return handler
+
+    def assert_rejected(self, payload, error, status=HTTPStatus.BAD_REQUEST):
+        store = Mock()
+        handler = self.post(payload, store=store)
+        handler._send_json.assert_called_once_with({"error": error}, status)
+        store.extract_whatsapp_messages.assert_not_called()
+
+    def test_valid_payload_calls_store_and_returns_201(self):
+        store = Mock()
+        store.extract_whatsapp_messages.return_value = {"id": "new"}
+
+        handler = self.post(self.PAYLOAD, store=store)
+
+        store.extract_whatsapp_messages.assert_called_once_with(
+            "folder", "document", "קטע", "2026-10-26", "2026-10-27"
+        )
+        handler._send_json.assert_called_once_with({"id": "new"}, HTTPStatus.CREATED)
+
+    def test_missing_key_returns_400(self):
+        payload = {key: value for key, value in self.PAYLOAD.items() if key != "end_date"}
+
+        self.assert_rejected(payload, "invalid_request")
+
+    def test_extra_key_returns_400(self):
+        self.assert_rejected({**self.PAYLOAD, "extra": "x"}, "invalid_request")
+
+    def test_non_string_value_returns_400(self):
+        self.assert_rejected({**self.PAYLOAD, "start_date": 20261026}, "invalid_request")
+
+    def test_empty_name_returns_400(self):
+        self.assert_rejected({**self.PAYLOAD, "name": "   "}, "invalid_request")
+
+    def test_name_too_long_returns_400(self):
+        self.assert_rejected({**self.PAYLOAD, "name": "x" * 201}, "invalid_request")
+
+    def test_bad_date_format_returns_400(self):
+        self.assert_rejected({**self.PAYLOAD, "start_date": "26-10-2026"}, "invalid_date")
+
+    def test_invalid_date_returns_400(self):
+        self.assert_rejected({**self.PAYLOAD, "end_date": "2026-02-30"}, "invalid_date")
+
+    def test_start_after_end_returns_400(self):
+        self.assert_rejected(
+            {**self.PAYLOAD, "start_date": "2026-10-28"}, "invalid_range"
+        )
+
+    def test_no_whatsapp_chat_returns_422(self):
+        store = Mock()
+        store.extract_whatsapp_messages.side_effect = WhatsAppExtractError("no_whatsapp_chat")
+
+        handler = self.post(self.PAYLOAD, store=store)
+
+        handler._send_json.assert_called_once_with(
+            {"error": "no_whatsapp_chat"}, HTTPStatus.UNPROCESSABLE_ENTITY
+        )
+
+    def test_no_messages_in_range_returns_422(self):
+        store = Mock()
+        store.extract_whatsapp_messages.side_effect = WhatsAppExtractError("no_messages_in_range")
+
+        handler = self.post(self.PAYLOAD, store=store)
+
+        handler._send_json.assert_called_once_with(
+            {"error": "no_messages_in_range"}, HTTPStatus.UNPROCESSABLE_ENTITY
+        )
+
+    def test_document_not_found_returns_404(self):
+        store = Mock()
+        store.extract_whatsapp_messages.return_value = None
+
+        handler = self.post(self.PAYLOAD, store=store)
+
+        handler._send_json.assert_called_once_with(
+            {"error": "document_not_found"}, HTTPStatus.NOT_FOUND
+        )
 
 
 if __name__ == "__main__":

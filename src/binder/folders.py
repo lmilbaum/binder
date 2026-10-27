@@ -126,6 +126,16 @@ class Folders:
             self._changed()
         return document
 
+    def extract_whatsapp_messages(
+        self, folder_id: str, document_id: str, name: str, start_date: str, end_date: str
+    ) -> dict[str, object] | None:
+        document = folder_repository.extract_whatsapp_messages(
+            self.factory, folder_id, document_id, name, start_date, end_date
+        )
+        if document is not None:
+            self._changed()
+        return document
+
     def get_file(
         self, folder_id: str, document_id: str, file_id: str
     ) -> tuple[bytes, str, str] | None:

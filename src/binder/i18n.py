@@ -169,6 +169,18 @@ _HEBREW: dict[str, str] = {
     "calendar_filter_active": "מוצגים מסמכים מתאריך {date}",
     "calendar_clear_filter": "ניקוי סינון התאריך",
     "calendar_week_start": "0",
+    # WhatsApp message extraction.
+    "whatsapp_extract": "העברת הודעות למסמך חדש",
+    "whatsapp_extract_title": "הודעות WhatsApp למסמך חדש",
+    "whatsapp_extract_start": "מתאריך",
+    "whatsapp_extract_end": "עד תאריך",
+    "whatsapp_extract_hint": "ההודעות נלקחות מקובץ הייצוא המקורי של השיחה.",
+    "whatsapp_extract_default_name": "{name} — קטע",
+    "whatsapp_extract_save": "יצירת מסמך",
+    "whatsapp_extract_error_no_chat": "למסמך אין שיחת WhatsApp.",
+    "whatsapp_extract_error_no_messages": "אין הודעות בטווח התאריכים שנבחר.",
+    "whatsapp_extract_error_invalid_range": "תאריך ההתחלה חייב להיות לפני תאריך הסיום.",
+    "whatsapp_extract_error_invalid_date": "התאריך אינו תקין.",
 }
 
 _ENGLISH: dict[str, str] = {
@@ -328,6 +340,18 @@ _ENGLISH: dict[str, str] = {
     "calendar_filter_active": "Showing documents from {date}",
     "calendar_clear_filter": "Clear date filter",
     "calendar_week_start": "1",
+    # WhatsApp message extraction.
+    "whatsapp_extract": "Copy messages to new document",
+    "whatsapp_extract_title": "WhatsApp messages to a new document",
+    "whatsapp_extract_start": "From date",
+    "whatsapp_extract_end": "To date",
+    "whatsapp_extract_hint": "Messages are taken from the chat's original export file.",
+    "whatsapp_extract_default_name": "{name} — excerpt",
+    "whatsapp_extract_save": "Create document",
+    "whatsapp_extract_error_no_chat": "This document has no WhatsApp chat.",
+    "whatsapp_extract_error_no_messages": "There are no messages in the selected date range.",
+    "whatsapp_extract_error_invalid_range": "The start date must not be after the end date.",
+    "whatsapp_extract_error_invalid_date": "The date is invalid.",
 }
 
 

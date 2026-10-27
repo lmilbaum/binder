@@ -51,6 +51,13 @@ class LinkError(ValueError):
         super().__init__(code)
 
 
+class WhatsAppExtractError(ValueError):
+    """Raised when WhatsApp messages cannot be extracted from a document."""
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -582,6 +589,102 @@ def get_file(
             effective_content_type(file.content_type, file.name),
             file.name,
         )
+
+
+def extract_whatsapp_messages(
+    factory: sessionmaker[Session],
+    folder_id: str,
+    document_id: str,
+    name: str,
+    start_date: str,
+    end_date: str,
+) -> dict[str, object] | None:
+    """Copy a date range of a document's WhatsApp messages into a new document.
+
+    Returns ``None`` if the source document is missing. Raises
+    ``WhatsAppExtractError`` if the document has no chat or the range is empty.
+    """
+
+    now = _now()
+    with session_scope(factory) as session:
+        source = (
+            session.query(Document)
+            .options(
+                selectinload(Document.folder),
+                selectinload(Document.files),
+                selectinload(Document.tags),
+            )
+            .filter(Document.id == document_id, Document.folder_id == folder_id)
+            .one_or_none()
+        )
+        if source is None:
+            return None
+
+        # Prefer the original export: it covers all dates, whereas the stored
+        # chat normally only holds messages for the document's own date. If no
+        # attachment is available, fall back to the stored chat, which may still
+        # span multiple dates for legacy docs.
+        attached = next(
+            (file for file in source.files if file.id == source.whatsapp_chat_file_id),
+            None,
+        )
+        chat = None
+        if attached is not None:
+            chat = WhatsAppChat.from_file(
+                attached.name, read_large_object(session, attached.data_oid)
+            )
+        source_file = attached if chat is not None else None
+        if chat is None:
+            stored = source.whatsapp_chat or {}
+            if stored.get("messages"):
+                chat = WhatsAppChat(
+                    messages=list(stored["messages"]),
+                    participants=list(stored.get("participants", [])),
+                )
+        if chat is None:
+            raise WhatsAppExtractError("no_whatsapp_chat")
+
+        selected = chat.for_date_range(start_date, end_date)
+        if not selected.messages:
+            raise WhatsAppExtractError("no_messages_in_range")
+        doc_date = WhatsAppChat._to_iso_date(str(selected.messages[0]["date"])) or start_date
+
+        document = Document(
+            id=str(uuid4()),
+            folder_id=folder_id,
+            type=DOCUMENT_TYPE_REGULAR,
+            date=doc_date,
+            time="",
+            name=name.strip(),
+            description="",
+            content="",
+            summary="",
+            created_at=now,
+            updated_at=now,
+            whatsapp_chat=selected.to_dict(),
+        )
+        session.add(document)
+        if source_file is not None:
+            # The new document needs an id before its attachment row can point at it.
+            session.flush()
+            # Share the original bytes, so the export stays available for later extracts.
+            copied_file = DocumentFile(
+                id=str(uuid4()),
+                document_id=document.id,
+                name=source_file.name,
+                content_type=source_file.content_type,
+                size=source_file.size,
+                data_oid=source_file.data_oid,
+                sha256=source_file.sha256,
+                text_content=source_file.text_content,
+                created_at=now,
+            )
+            document.files.append(copied_file)
+            session.flush()
+            document.whatsapp_chat_file_id = copied_file.id
+        source.folder.updated_at = now
+        session.flush()
+        return _document_to_dict(document)
 
 
 def find_duplicates(factory: sessionmaker[Session]) -> dict[str, object]:

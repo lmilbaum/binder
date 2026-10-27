@@ -289,6 +289,36 @@
       </form>
     </dialog>
 
+    <dialog id="whatsapp-extract-dialog" aria-labelledby="whatsapp-extract-heading">
+      <form id="whatsapp-extract-form" method="dialog">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">@@documents@@</p>
+            <h2 id="whatsapp-extract-heading">@@whatsapp_extract_title@@</h2>
+          </div>
+          <button class="icon-button" id="close-whatsapp-extract-dialog" type="button" aria-label="@@close@@">×</button>
+        </div>
+        <label for="whatsapp-extract-name">@@document_name@@</label>
+        <input id="whatsapp-extract-name" name="name" dir="auto" maxlength="200" required>
+        <div class="date-time-fields">
+          <div>
+            <label for="whatsapp-extract-start">@@whatsapp_extract_start@@</label>
+            <input id="whatsapp-extract-start" name="start_date" type="date" required>
+          </div>
+          <div>
+            <label for="whatsapp-extract-end">@@whatsapp_extract_end@@</label>
+            <input id="whatsapp-extract-end" name="end_date" type="date" required>
+          </div>
+        </div>
+        <p class="field-hint">@@whatsapp_extract_hint@@</p>
+        <p id="whatsapp-extract-error" class="error" role="alert"></p>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="cancel-whatsapp-extract-dialog" type="button">@@cancel@@</button>
+          <button class="primary-button" type="submit">@@whatsapp_extract_save@@</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="/app.js" defer></script>
   </body>
 </html>
