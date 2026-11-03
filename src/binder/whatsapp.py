@@ -5,8 +5,6 @@ import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
-
 
 ANDROID_LINE = re.compile(
     r"^(?P<date>\d{1,2}[./]\d{1,2}[./]\d{2,4}),\s*"
@@ -28,7 +26,7 @@ class WhatsAppChat:
     participants: list[str]
 
     @classmethod
-    def from_file(cls, filename: str, content: bytes) -> Optional["WhatsAppChat"]:
+    def from_file(cls, filename: str, content: bytes) -> WhatsAppChat | None:
         text = cls._extract_text(filename, content)
         if text is None:
             return None
@@ -45,7 +43,7 @@ class WhatsAppChat:
         return cls(messages=messages, participants=participants)
 
     @classmethod
-    def from_path(cls, filename: str, path: Path) -> Optional["WhatsAppChat"]:
+    def from_path(cls, filename: str, path: Path) -> WhatsAppChat | None:
         suffix = Path(filename).suffix.lower()
         if suffix == ".txt":
             if path.stat().st_size > 10 * 1024 * 1024:
@@ -88,11 +86,15 @@ class WhatsAppChat:
             "me": OWNER_NAME,
         }
 
-    def for_date(self, iso_date: str) -> "WhatsAppChat":
+    def for_date(self, iso_date: str) -> WhatsAppChat:
+        return self.for_date_range(iso_date, iso_date)
+
+    def for_date_range(self, start_iso: str, end_iso: str) -> WhatsAppChat:
         messages = [
             message
             for message in self.messages
-            if self._to_iso_date(str(message["date"])) == iso_date
+            if (iso := self._to_iso_date(str(message["date"]))) is not None
+            and start_iso <= iso <= end_iso
         ]
         participants = list(
             dict.fromkeys(
@@ -104,7 +106,7 @@ class WhatsAppChat:
         return WhatsAppChat(messages=messages, participants=participants)
 
     @staticmethod
-    def _to_iso_date(date: str) -> Optional[str]:
+    def _to_iso_date(date: str) -> str | None:
         separator = "/" if "/" in date else "."
         parts = date.split(separator)
         if len(parts) != 3:
@@ -118,7 +120,7 @@ class WhatsAppChat:
             return None
 
     @staticmethod
-    def _extract_text(filename: str, content: bytes) -> Optional[str]:
+    def _extract_text(filename: str, content: bytes) -> str | None:
         suffix = Path(filename).suffix.lower()
         if suffix == ".txt":
             return WhatsAppChat._decode(content)
@@ -140,7 +142,7 @@ class WhatsAppChat:
             return None
 
     @staticmethod
-    def _decode(content: bytes) -> Optional[str]:
+    def _decode(content: bytes) -> str | None:
         for encoding in ("utf-8-sig", "utf-16", "cp1255"):
             try:
                 return content.decode(encoding)

@@ -4,7 +4,6 @@ import zipfile
 
 from binder.whatsapp import WhatsAppChat
 
-
 CHAT_TEXT = """30/08/2026, 14:35 - דנה: אפשר לדבר? 😊
 30/08/2026, 14:36 - אני: כן
 המשך של אותה הודעה
@@ -64,6 +63,29 @@ class WhatsAppChatTests(unittest.TestCase):
         chat = WhatsAppChat.from_file("chat.txt", CHAT_TEXT.encode())
 
         empty = chat.for_date("2020-01-01")
+
+        self.assertEqual(empty.messages, [])
+        self.assertEqual(empty.participants, [])
+
+    def test_for_date_range_keeps_inclusive_range(self):
+        text = (
+            "25/10/2026, 10:00 - דנה: לפני\n"
+            "26/10/2026, 10:00 - דנה: התחלה\n"
+            "27/10/2026, 10:00 - אני: סוף\n"
+        )
+        chat = WhatsAppChat.from_file("chat.txt", text.encode())
+
+        selected = chat.for_date_range("2026-10-26", "2026-10-27")
+
+        self.assertEqual(
+            [message["content"] for message in selected.messages], ["התחלה", "סוף"]
+        )
+        self.assertEqual(selected.participants, ["דנה", "אני"])
+
+    def test_for_date_range_with_no_match_returns_empty_chat(self):
+        chat = WhatsAppChat.from_file("chat.txt", CHAT_TEXT.encode())
+
+        empty = chat.for_date_range("2020-01-01", "2020-01-31")
 
         self.assertEqual(empty.messages, [])
         self.assertEqual(empty.participants, [])
